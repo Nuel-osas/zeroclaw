@@ -81,6 +81,31 @@ can move funds.** Defenses, in depth:
    surrounding text.
 5. **Fail-closed** — deny or timeout posts nothing.
 
+**Third-party trust declared (honest boundary of the T1 claim).** "No keys held" is
+true of the agent, but the setup does route data through third parties, and none of
+them can move funds — they can at worst see or misreport:
+- **The model provider (DeepSeek V4 Flash)** sees every prompt and tool result,
+  including the watched address and thresholds. It cannot sign anything. For a
+  zero-third-party posture the same agent runs fully local on Ollama (weaker, but no
+  data leaves the machine) — a deliberate, documented trade of reliability for privacy.
+- **Jupiter price API + your RPC provider** are read sources. A compromised/hostile
+  price feed could suppress or fake an alert — but not move funds, and the owner's
+  wallet still independently previews the actual transaction before signing. Support
+  user-supplied RPC URLs so operators can run their own.
+- **Telegram** carries the alert text and the Blink link. It is a notification
+  surface only; approval does not happen there (the robot gate does), so a
+  compromised Telegram cannot approve an action.
+- **The Blink/Action host** builds the transaction the wallet signs — the owner's
+  wallet previews it, so a malicious Action surfaces as a wrong preview the human can
+  reject. The `action_blink` origin is owner-set in person, never message-supplied.
+
+None of these hold keys. The trust chain ends at the owner's wallet, where a human
+reviews the actual transaction before signing.
+
+**Output shaping (trap #3).** The poll step extracts a single number and returns
+under ~200 tokens (metric, value, threshold) — never a raw RPC/DAS payload — so a
+busy address can't flood context or run up the owner's model cost.
+
 **Prompt-injection test (required):** three attacks — redirect the action link,
 forge an approval to skip the gate, and exfiltrate/escalate to signing — were run
 against the live agent; all three failed closed with correct reasoning. Verbatim

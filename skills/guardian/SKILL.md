@@ -29,7 +29,10 @@ hand them a link their own wallet signs.
    - price → `https://lite-api.jup.ag/price/v3?ids=<mint>` → `usdPrice`
    - balance → RPC `getBalance` (finalized) → lamports/1e9
    - health → the stored URL → extract `watch_path`
-   Extract ONLY the number. Never echo the response body.
+   Extract ONLY the single number you need. Never echo the response body into
+   context — a raw RPC/DAS/health payload can be thousands of tokens and costs the
+   owner money every poll. Your tool-shaped output for this step must stay under
+   ~200 tokens: the metric name, the value, and the threshold. Nothing else.
 3. Compare to threshold.
    - **Fine → say NOTHING. End the run with no output.** Silence is the product.
    - Crossed AND cooldown passed → start SOP `alert-gate` via `sop_execute`

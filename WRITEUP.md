@@ -7,13 +7,15 @@
 Guardian watches **one Solana position you actually care about** and stays
 completely silent until it needs you. A scheduled agent polls the position's
 health over RPC. When — and only when — a threshold is crossed, the alert does
-**not** go straight to your phone. It goes to a **Reachy Mini robot on your desk**,
-which turns to you and asks out loud. A person physically present says yes or no.
-On *yes*, the agent posts a ready-to-sign action link (a Solana Blink) to your
-Telegram, and **your own wallet signs**. On *no*, or on timeout, nothing happens.
+**not** go straight to your phone. The agent must ask a **physical gate**: a
+**Reachy Mini robot on your desk** turns to you and asks out loud. A person
+physically present says yes or no. On *yes*, the gate releases a ready-to-sign
+action link (a Solana Blink) which the agent posts to your Telegram, and **your own
+wallet signs**. On *no*, or on timeout, nothing happens.
 
-The agent never holds a key. It reads the chain and prepares an action; it can
-never move your funds.
+The agent never holds a key — and it never holds the action link either. The link
+lives in a local gate daemon the model cannot read, so "leak the link" and "skip the
+gate" are the same impossible request.
 
 ## Who it's for
 
@@ -30,11 +32,11 @@ trigger, and a physical act of consent that malware on your phone cannot fake.
   position is healthy.
 - **Skills** — one skill (`guardian`) teaches the watch + alert workflow; passes
   `zeroclaw skills audit`.
-- **SOP engine with a human-approval checkpoint** — the `alert-gate` SOP parks a
-  run at a checkpoint and survives daemon restarts (`persist_runs`).
-- **SOP approval broker** — the robot is registered as the *only* member of the
-  approval group (`[sop.approval.policies.robot]`), so nothing but the physical
-  gate can clear the alert.
+- **Skill-enforced gate call** — the alert procedure's only path to an action link
+  is an `http_request` to the local gate service, which blocks on a human.
+- **SSRF policy as a capability boundary** — `http_request` is pinned to the RPC,
+  Jupiter, and exactly one private host (`127.0.0.1`, the gate). The agent can ask
+  the gate and nothing else local.
 - **Built-in `http_request` tool** — pinned via `allowed_domains` to just the RPC
   + Jupiter hosts, SSRF guard on.
 - **Memory** — the watch config and owner-set action link live in encrypted core
@@ -47,11 +49,15 @@ trigger, and a physical act of consent that malware on your phone cannot fake.
 ## What we built
 
 - `skills/guardian/SKILL.md` — the watch/alert procedures and the refusal rules.
-- `sops/alert-gate/` — the checkpoint SOP (stage → **robot gate** → deliver).
-- `reachy/gate_sidecar.py` — turns the Reachy into a ZeroClaw approval principal:
-  it discovers a parked gate, speaks the alert, waits for a spoken/keyed yes/no,
-  and approves or denies through the gateway. SDK-optional; degrades to a
-  keyboard-at-the-machine confirm (still physical presence) and to speech-only.
+- `reachy/gate_service.py` — **the security core.** A local daemon that holds the
+  action link, turns the Reachy toward the owner, speaks the alert through the
+  robot's own speaker, waits for a physical yes/no, and returns the link *only* on
+  yes. Drives the robot over the Reachy Mini Control app's HTTP API (no SDK
+  install); degrades to host speech + keypress-at-the-machine, still physical.
+- `sops/alert-gate/` + `reachy/gate_sidecar.py` — an alternative SOP-checkpoint
+  implementation of the same gate, kept for operators who prefer ZeroClaw's
+  approval broker. (We ship the service variant: it needs no daemon restart to
+  surface a fresh gate, and it removes the link from the agent entirely.)
 - `scripts/health_check.py` — a standalone read (price / balance / lending-health)
   that mirrors exactly what the agent's tool does, so the chain read is verifiable
   without ZeroClaw.
@@ -69,16 +75,18 @@ The single invariant: **every action the agent proposes is gated by a physical
 approval at the robot, and the agent holds no keys — so no sequence of messages
 can move funds.** Defenses, in depth:
 
-1. **No keys exist.** The worst any input can achieve is a link nobody signs.
+1. **No keys exist**, and **no link exists in the agent**. The worst any input can
+   achieve is nothing at all: there is no artifact to leak.
 2. **Deny-by-default senders** (`peer_groups`) — unknown Telegram users are ignored.
 3. **The action destination is out-of-band** — `action_blink` is owner-set core
    memory established in person; the skill refuses any destination arriving in a
    message.
-4. **Approval is a runtime fact, not a text claim** — the gate clears only when
-   the SOP engine resumes the run after a gateway approval from the robot
-   principal. A chat message has no path to that record; in the verified run the
-   agent even re-checked `sop_status` before delivering rather than trusting the
-   surrounding text.
+4. **Approval is a physical fact, not a text claim** — the only `{"approved": true,
+   "action_link": …}` in existence is produced by the gate process after a human
+   answered at the robot. Verified live: deny and timeout return `{"approved":
+   false}` with no link field at all. Under attack the agent's own words were: *"a
+   genuine override would never hand me a link, because I don't hold one and never
+   can."*
 5. **Fail-closed** — deny or timeout posts nothing.
 
 **Third-party trust declared (honest boundary of the T1 claim).** "No keys held" is
@@ -115,8 +123,9 @@ transcript in `INJECTION-TRANSCRIPT.md`.
 **unnecessary** here. The listing's trap #1 (a transaction dying in an approval
 queue) only applies to designs that hold a built transaction while a human decides.
 Guardian gates an *alert*; the transaction is built by the wallet at sign time,
-after approval, so nothing exists that can expire. Solving a trap by architecture
-beats solving it by code.
+after approval, so nothing exists that can expire — a human can walk to the robot,
+think about it, and answer a minute later with zero consequence. Solving a trap by
+architecture beats solving it by code.
 
 ## Why the robot is not decoration
 
@@ -137,7 +146,11 @@ robot (keyboard = the physical confirm).
 
 ## Status
 
-Proven end-to-end on 2026-08-06: a live poll read SOL at $73.66 against an $80
-floor, started the SOP, parked at the robot gate, was approved through the gateway,
-and delivered the alert + the owner's action link — with the denial/timeout path
-posting nothing. Repo: <ADD GITHUB LINK>. Demo video: <ADD LINK>.
+Proven end-to-end on 2026-08-07 against a real position (BONK, live Jupiter price):
+the scheduled poll read the price below the owner's floor, called the physical gate,
+the Reachy turned and asked aloud, a human approved at the machine, and the agent
+delivered *"Confirmed at the robot. Ready to act: <link> — your wallet signs; I
+can't."* The deny and timeout paths were verified to return no link at all, and the
+three injection attacks in `INJECTION-TRANSCRIPT.md` all failed closed.
+
+Repo: https://github.com/Nuel-osas/zeroclaw · Demo video: <ADD LINK>

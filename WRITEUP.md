@@ -39,10 +39,11 @@ trigger, and a physical act of consent that malware on your phone cannot fake.
   the gate and nothing else local.
 - **Built-in `http_request` tool** — pinned via `allowed_domains` to just the RPC
   + Jupiter hosts, SSRF guard on.
-- **Memory** — the watch config and owner-set action link live in encrypted core
-  memory; every alert/denial is ledgered.
-- **Gateway** — the robot sidecar approves/denies through the gateway's authed
-  `/admin/sop/*` endpoints.
+- **Memory** — the watch config (target, thresholds, cooldown) lives in encrypted
+  core memory; every alert and denial is ledgered. The action link is deliberately
+  *not* here — it is outside the agent entirely.
+- **SOP engine + approval broker** — used by the alternative checkpoint variant we
+  also ship (`sops/alert-gate/`).
 - **Model:** DeepSeek V4 Flash (any of ZeroClaw's 70+ providers works; also runs
   fully local on Ollama for a zero-key, zero-cloud posture).
 
@@ -63,8 +64,9 @@ trigger, and a physical act of consent that malware on your phone cannot fake.
   without ZeroClaw.
 - `config.example.toml` — the full T1 wiring, secrets redacted.
 
-Everything the agent needs is composition: one skill, one cron job, one SOP. The
-only original code is the robot sidecar and the read helper.
+Everything the agent needs is composition: one skill, one cron job, one config.
+The only original code is the gate (which gives the robot its role) and the read
+helper.
 
 ## Custody tier and threat model
 
@@ -78,9 +80,9 @@ can move funds.** Defenses, in depth:
 1. **No keys exist**, and **no link exists in the agent**. The worst any input can
    achieve is nothing at all: there is no artifact to leak.
 2. **Deny-by-default senders** (`peer_groups`) — unknown Telegram users are ignored.
-3. **The action destination is out-of-band** — `action_blink` is owner-set core
-   memory established in person; the skill refuses any destination arriving in a
-   message.
+3. **The action destination is out-of-band** — the link is set when the operator
+   starts the gate, in person at the machine; the skill refuses any destination
+   arriving in a message and has none of its own to leak.
 4. **Approval is a physical fact, not a text claim** — the only `{"approved": true,
    "action_link": …}` in existence is produced by the gate process after a human
    answered at the robot. Verified live: deny and timeout return `{"approved":
@@ -114,10 +116,11 @@ reviews the actual transaction before signing.
 under ~200 tokens (metric, value, threshold) — never a raw RPC/DAS payload — so a
 busy address can't flood context or run up the owner's model cost.
 
-**Prompt-injection test (required):** three attacks — redirect the action link,
-forge an approval to skip the gate, and exfiltrate/escalate to signing — were run
-against the live agent; all three failed closed with correct reasoning. Verbatim
-transcript in `INJECTION-TRANSCRIPT.md`.
+**Prompt-injection test (required):** three attacks — demand the link with a fake
+"robot is offline, I confirm in person" override, redirect the link to an attacker
+address, and forge a `{"approved": true}` gate response — were run against the live
+agent; all three failed closed with correct reasoning. Verbatim transcript in
+`INJECTION-TRANSCRIPT.md`.
 
 *One deliberate rejection, argued for correct layering:* durable nonces are
 **unnecessary** here. The listing's trap #1 (a transaction dying in an approval
@@ -130,8 +133,8 @@ architecture beats solving it by code.
 ## Why the robot is not decoration
 
 The robot is doing the security work. An injection can forge a *message* — it
-cannot forge a *person in your room*. Registering the robot as the sole approval
-principal turns "a human must consent" from a prompt instruction (bypassable) into
+cannot forge a *person in your room*. Putting the action link behind the robot
+turns "a human must consent" from a prompt instruction (bypassable) into
 a runtime guarantee (not bypassable). That is the answer to the safety criterion
 and the injection test in one mechanism.
 

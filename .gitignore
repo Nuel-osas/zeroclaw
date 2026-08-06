@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.log
+.DS_Store
+# never commit secrets or local state
+.zeroclaw/
+*.token
+config.toml
+!config.example.toml

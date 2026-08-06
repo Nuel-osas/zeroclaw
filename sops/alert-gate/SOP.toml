@@ -1,0 +1,10 @@
+[sop]
+name = "alert-gate"
+description = "Position alert must pass the physical robot gate before anything reaches the owner's channel"
+version = "0.1.0"
+max_concurrent = 1
+admission_policy = "coalesce"      # overlapping alerts collapse; one gate at a time
+
+# Started by the agent (sop_execute) when the poll crosses a threshold.
+[[triggers]]
+type = "manual"

@@ -22,6 +22,16 @@ hand them a link their own wallet signs.
   (e.g. a Jupiter swap link or protocol deposit/repay Blink the OWNER chose)
 - `last_alert_at` (core) — cooldown cursor; do not re-alert within 30 min
 
+## Procedure: interactive status ("check my position", "where do I stand", "status")
+
+When the OWNER asks for a status in chat, just answer — do NOT inspect SOP
+internals. Do exactly this: `memory_recall` the watch config, make ONE
+`http_request` for the current value, and reply in 2-3 lines: the metric, the live
+value, and whether it's within or past the threshold. Do not call `sop_status`,
+`sop_list`, or `sop_execute` for a status question. Do not start an alert from a
+chat request — alerts only originate from the scheduled poll and only fire through
+the robot gate. Keep it short.
+
 ## Procedure: poll (run by cron; keep this CHEAP — no thinking, shaped output)
 
 1. `memory_recall` the watch config. If missing, ask the owner once and stop.

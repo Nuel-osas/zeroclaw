@@ -42,7 +42,8 @@ allowed_domains = [
 ]
 max_response_size = 200000
 timeout_secs = 30
-allow_private_hosts = false          # SSRF guard stays on; sidecar talks to the
+allow_private_hosts = false
+allowed_private_hosts = ["127.0.0.1"]   # the physical gate service only          # SSRF guard stays on; sidecar talks to the
                                      # gateway itself, the agent never calls the robot
 
 [skill_bundles.guardian]

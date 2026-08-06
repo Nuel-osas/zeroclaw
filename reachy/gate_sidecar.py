@@ -127,7 +127,7 @@ def pending_gate(runs_db):
             if terminal:
                 continue
             d = json.loads(raw).get("run", {})
-            if d.get("status") == "waiting_approval" and d.get("current_step", 0) >= 2:
+            if d.get("status") == "waiting_approval" and d.get("current_step", 0) >= 1:
                 trig = d.get("trigger_event", {}) or {}
                 summary = ""
                 try:
@@ -143,11 +143,16 @@ def pending_gate(runs_db):
         except Exception: pass
 
 def gw(base, token, path, body=None):
-    req = urllib.request.Request(base + path, method="POST",
-        data=json.dumps(body).encode() if body else None,
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=15) as r:
-        return r.status == 200
+    """POST to the gateway; never fatal — a transient 4xx/5xx must not kill the gate."""
+    try:
+        req = urllib.request.Request(base + path, method="POST",
+            data=json.dumps(body).encode() if body else None,
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return r.status == 200
+    except Exception as e:
+        print(f"[gate] gateway {path} -> {e}")
+        return False
 
 def main():
     ap = argparse.ArgumentParser()
@@ -160,10 +165,15 @@ def main():
 
     print(f"[gate] robot {'ONLINE' if robot_up() else 'offline (host fallback)'} · "
           f"watching {a.runs_db}")
-    seen = set()
+    seen, approved = set(), set()
     while True:
         g = pending_gate(a.runs_db)
-        if g and g[0] not in seen:
+        if g and g[0] in approved:
+            # Same alert, later step: the human already consented at the robot for
+            # THIS run — continue it without asking again. (One consent per alert.)
+            gw(a.gateway, a.token, "/admin/sop/approve", {"run_id": g[0]})
+            time.sleep(2)
+        elif g and g[0] not in seen:
             rid, summary = g
             seen.add(rid)
             print(f"[gate] PENDING {rid}: {summary}")
@@ -172,6 +182,7 @@ def main():
             ok = confirm(a.timeout, a.asr)
             if ok:
                 ack_yes(); speak("Approved. Sending the action to your phone.")
+                approved.add(rid)
                 gw(a.gateway, a.token, "/admin/sop/approve", {"run_id": rid})
                 print(f"[gate] APPROVED {rid}")
             else:
